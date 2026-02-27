@@ -78,3 +78,86 @@ async fn execute() {
         .await;
     }
 }
+
+#[tokio::test]
+async fn transaction_commit() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Create a table.
+    sqlx::query("CREATE TABLE test_commit (id SERIAL PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Insert a row inside a transaction and commit.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO test_commit (value) VALUES ('hello')")
+        .execute(&mut tx.executor())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // The row should be visible after commit.
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM test_commit")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 1);
+}
+
+#[tokio::test]
+async fn transaction_rollback() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Create a table.
+    sqlx::query("CREATE TABLE test_rollback (id SERIAL PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Insert a row inside a transaction and roll back.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO test_rollback (value) VALUES ('hello')")
+        .execute(&mut tx.executor())
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
+
+    // The row should NOT be visible after rollback.
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM test_rollback")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 0);
+}
+
+#[tokio::test]
+async fn transaction_drop_rolls_back() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Create a table.
+    sqlx::query("CREATE TABLE test_drop (id SERIAL PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Insert a row inside a transaction and drop without commit.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO test_drop (value) VALUES ('hello')")
+            .execute(&mut tx.executor())
+            .await
+            .unwrap();
+        // tx is dropped here without commit or rollback
+    }
+
+    // The row should NOT be visible (implicit rollback on drop).
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM test_drop")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 0);
+}

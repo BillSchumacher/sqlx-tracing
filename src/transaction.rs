@@ -18,11 +18,55 @@ where
     }
 
     /// Commits this transaction or savepoint.
+    ///
+    /// This consumes the `Transaction`, sending a `COMMIT` statement to the
+    /// database and releasing the underlying connection back to the pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`sqlx::Error`] if the database fails to commit the
+    /// transaction (e.g., due to a constraint violation or connectivity issue).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut tx = pool.begin().await?;
+    /// sqlx::query("INSERT INTO users (name) VALUES ($1)")
+    ///     .bind("Alice")
+    ///     .execute(&mut tx.executor())
+    ///     .await?;
+    /// tx.commit().await?;
+    /// ```
     pub async fn commit(self) -> Result<(), Error> {
         self.inner.commit().await
     }
 
     /// Aborts this transaction or savepoint.
+    ///
+    /// This consumes the `Transaction`, sending a `ROLLBACK` statement to the
+    /// database and discarding all changes made within the transaction. The
+    /// underlying connection is released back to the pool.
+    ///
+    /// Note that dropping a `Transaction` without calling [`commit`](Transaction::commit)
+    /// will also roll back automatically. Use this method when you want to
+    /// explicitly handle the rollback result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`sqlx::Error`] if the database fails to process the rollback
+    /// (e.g., due to a connectivity issue).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut tx = pool.begin().await?;
+    /// sqlx::query("INSERT INTO users (name) VALUES ($1)")
+    ///     .bind("Alice")
+    ///     .execute(&mut tx.executor())
+    ///     .await?;
+    /// // Discard the insert
+    /// tx.rollback().await?;
+    /// ```
     pub async fn rollback(self) -> Result<(), Error> {
         self.inner.rollback().await
     }
