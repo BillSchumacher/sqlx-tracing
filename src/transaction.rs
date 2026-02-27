@@ -41,7 +41,17 @@ where
     /// tx.commit().await?;
     /// ```
     pub async fn commit(self) -> Result<(), Error> {
-        self.inner.commit().await
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.transaction.commit", attrs);
+        async {
+            self.inner
+                .commit()
+                .await
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
     }
 
     /// Aborts this transaction or savepoint.
@@ -73,7 +83,17 @@ where
     /// tx.rollback().await?;
     /// ```
     pub async fn rollback(self) -> Result<(), Error> {
-        self.inner.rollback().await
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.transaction.rollback", attrs);
+        async {
+            self.inner
+                .rollback()
+                .await
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
     }
 }
 

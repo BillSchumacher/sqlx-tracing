@@ -141,6 +141,41 @@ macro_rules! exec_stream {
     }};
 }
 
+/// Macro to create a tracing span for a non-SQL lifecycle operation with OpenTelemetry-compatible fields.
+///
+/// - `$name`: The operation name (e.g., "sqlx.pool.acquire", "sqlx.transaction.commit").
+/// - `$attributes`: Connection or pool attributes for peer and db context.
+///
+/// This macro is used internally for pool and transaction lifecycle operations
+/// that don't have an associated SQL statement. It omits query-specific fields
+/// like `db.query.text`, `db.sql.table`, and `db.response.*`.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! instrument_op {
+    ($name:expr, $attributes:expr) => {
+        tracing::info_span!(
+            $name,
+            // Database name (if available)
+            "db.name" = $attributes.database,
+            // Database system (e.g., "postgresql", "sqlite")
+            "db.system.name" = DB::SYSTEM,
+            // Error type, message, and stacktrace (to be filled on error)
+            "error.type" = ::tracing::field::Empty,
+            "error.message" = ::tracing::field::Empty,
+            "error.stacktrace" = ::tracing::field::Empty,
+            // Peer (server) host and port
+            "net.peer.name" = $attributes.host,
+            "net.peer.port" = $attributes.port,
+            // OpenTelemetry semantic fields
+            "otel.kind" = "client",
+            "otel.status_code" = ::tracing::field::Empty,
+            "otel.status_description" = ::tracing::field::Empty,
+            // Peer service name (if set)
+            "peer.service" = $attributes.name,
+        )
+    };
+}
+
 /// Records that a single row was returned in the current tracing span.
 /// Used for fetch_one operations.
 pub fn record_one<T>(_value: &T) {
