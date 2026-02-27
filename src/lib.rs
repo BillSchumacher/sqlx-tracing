@@ -185,6 +185,14 @@ where
 /// An in-progress database transaction or savepoint, instrumented for tracing.
 ///
 /// Wraps a SQLx [`Transaction`] and propagates tracing attributes.
+///
+/// A `Transaction` is created via [`Pool::begin`] and can be explicitly
+/// committed with [`Transaction::commit`] or rolled back with
+/// [`Transaction::rollback`]. If dropped without calling either method,
+/// the transaction is automatically rolled back (SQLx default behavior).
+///
+/// Use [`Transaction::executor`] to obtain a tracing-instrumented executor
+/// for running queries within the transaction.
 #[derive(Debug)]
 pub struct Transaction<'c, DB>
 where

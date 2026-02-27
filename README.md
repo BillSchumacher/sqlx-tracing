@@ -66,7 +66,23 @@ let mut tx = traced_pool.begin().await?;
 let result: Option<i32> = sqlx::query_scalar("select 1")
     .fetch_optional(&mut tx.executor())
     .await?;
+tx.commit().await?;
 ```
+
+Transactions can also be explicitly rolled back:
+
+```rust,ignore
+let mut tx = traced_pool.begin().await?;
+sqlx::query("INSERT INTO users (name) VALUES ($1)")
+    .bind("Alice")
+    .execute(&mut tx.executor())
+    .await?;
+// Discard the changes
+tx.rollback().await?;
+```
+
+If a transaction is dropped without calling `commit` or `rollback`, it is
+automatically rolled back.
 
 ## OpenTelemetry Integration
 
