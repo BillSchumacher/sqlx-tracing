@@ -88,6 +88,9 @@ where
 {
     type Database = DB;
 
+    // Transaction's describe needs the future created inside the async block
+    // because `(&mut self.inner)` borrows through `self` which is consumed
+    // by the async move block.
     #[doc(hidden)]
     fn describe<'e, 'q: 'e>(
         self,
@@ -97,11 +100,13 @@ where
         'c: 'e,
     {
         let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
         let span = crate::instrument!("sqlx.describe", sql, attrs);
         Box::pin(
             async move {
                 let fut = (&mut self.inner).describe(sql);
-                fut.await.inspect_err(crate::span::record_error)
+                fut.await
+                    .inspect_err(|e| crate::span::record_error(e, record_details))
             }
             .instrument(span),
         )
@@ -120,9 +125,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.execute", sql, attrs);
-        let fut = (&mut self.inner).execute(query);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!("sqlx.execute", sql, attrs, (&mut self.inner).execute(query))
     }
 
     fn execute_many<'e, 'q: 'e, E>(
@@ -138,15 +141,11 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.execute_many", sql, attrs);
-        let stream = (&mut self.inner).execute_many(query);
-        use futures::StreamExt;
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
+        crate::exec_stream!(
+            "sqlx.execute_many",
+            sql,
+            attrs,
+            (&mut self.inner).execute_many(query)
         )
     }
 
@@ -160,16 +159,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch", sql, attrs);
-        let stream = (&mut self.inner).fetch(query);
-        use futures::StreamExt;
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
-        )
+        crate::exec_stream!("sqlx.fetch", sql, attrs, (&mut self.inner).fetch(query))
     }
 
     fn fetch_all<'e, 'q: 'e, E>(
@@ -185,19 +175,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_all", sql, attrs);
-        let fut = (&mut self.inner).fetch_all(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(|res| {
-                        let span = tracing::Span::current();
-                        span.record("db.response.returned_rows", res.len());
-                    })
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_rows!(sql, attrs, (&mut self.inner).fetch_all(query))
     }
 
     fn fetch_many<'e, 'q: 'e, E>(
@@ -219,14 +197,11 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_all", sql, attrs);
-        let stream = (&mut self.inner).fetch_many(query);
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
+        crate::exec_stream!(
+            "sqlx.fetch_many",
+            sql,
+            attrs,
+            (&mut self.inner).fetch_many(query)
         )
     }
 
@@ -240,16 +215,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_one", sql, attrs);
-        let fut = (&mut self.inner).fetch_one(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(crate::span::record_one)
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_one!(sql, attrs, (&mut self.inner).fetch_one(query))
     }
 
     fn fetch_optional<'e, 'q: 'e, E>(
@@ -265,16 +231,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_optional", sql, attrs);
-        let fut = (&mut self.inner).fetch_optional(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(crate::span::record_optional)
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_opt!(sql, attrs, (&mut self.inner).fetch_optional(query))
     }
 
     fn prepare<'e, 'q: 'e>(
@@ -288,9 +245,12 @@ where
         'c: 'e,
     {
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.prepare", query, attrs);
-        let fut = (&mut self.inner).prepare(query);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!(
+            "sqlx.prepare",
+            query,
+            attrs,
+            (&mut self.inner).prepare(query)
+        )
     }
 
     fn prepare_with<'e, 'q: 'e>(
@@ -305,8 +265,11 @@ where
         'c: 'e,
     {
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.prepare_with", sql, attrs);
-        let fut = (&mut self.inner).prepare_with(sql, parameters);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!(
+            "sqlx.prepare_with",
+            sql,
+            attrs,
+            (&mut self.inner).prepare_with(sql, parameters)
+        )
     }
 }

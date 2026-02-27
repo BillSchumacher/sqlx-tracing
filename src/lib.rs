@@ -16,12 +16,27 @@ pub mod sqlite;
 
 /// Attributes describing the database connection and context.
 /// Used for span enrichment and attribute propagation.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Attributes {
     name: Option<String>,
     host: Option<String>,
     port: Option<u16>,
     database: Option<String>,
+    record_query_text: bool,
+    record_error_details: bool,
+}
+
+impl Default for Attributes {
+    fn default() -> Self {
+        Self {
+            name: None,
+            host: None,
+            port: None,
+            database: None,
+            record_query_text: true,
+            record_error_details: true,
+        }
+    }
 }
 
 /// Builder for constructing a [`Pool`] with custom attributes.
@@ -43,12 +58,12 @@ impl From<sqlx::Pool<sqlx::Postgres>> for PoolBuilder<sqlx::Postgres> {
 
         let url = pool.connect_options().to_url_lossy();
         let attributes = Attributes {
-            name: None,
             host: url.host_str().map(String::from),
             port: url.port(),
             database: url
                 .path_segments()
                 .and_then(|mut segments| segments.next().map(String::from)),
+            ..Default::default()
         };
         Self { pool, attributes }
     }
@@ -60,14 +75,12 @@ impl From<sqlx::Pool<sqlx::Sqlite>> for PoolBuilder<sqlx::Sqlite> {
     /// Create a new builder from an existing SQLx pool.
     fn from(pool: sqlx::Pool<sqlx::Sqlite>) -> Self {
         let attributes = Attributes {
-            name: None,
             host: pool
                 .connect_options()
                 .get_filename()
                 .to_str()
                 .map(String::from),
-            port: None,
-            database: None,
+            ..Default::default()
         };
         Self { pool, attributes }
     }
@@ -95,6 +108,32 @@ impl<DB: sqlx::Database> PoolBuilder<DB> {
     /// Set the port attribute.
     pub fn with_port(mut self, port: u16) -> Self {
         self.attributes.port = Some(port);
+        self
+    }
+
+    /// Enable or disable recording of SQL query text in spans.
+    ///
+    /// When disabled, the `db.query.text` span field will be empty.
+    /// This can be useful in environments where SQL queries may contain
+    /// sensitive data that should not flow to the observability backend.
+    ///
+    /// Enabled by default.
+    pub fn with_query_text_recording(mut self, enabled: bool) -> Self {
+        self.attributes.record_query_text = enabled;
+        self
+    }
+
+    /// Enable or disable recording of detailed error information in spans.
+    ///
+    /// When disabled, error spans will only record the error type
+    /// (client/server) and status code, omitting the error message and
+    /// Debug-format stacktrace. This can be useful when error messages might
+    /// contain sensitive information such as connection strings or internal
+    /// database state.
+    ///
+    /// Enabled by default.
+    pub fn with_error_detail_recording(mut self, enabled: bool) -> Self {
+        self.attributes.record_error_details = enabled;
         self
     }
 
