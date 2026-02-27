@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/BillSchumacher/sqlx-tracing/compare/v0.2.0...v0.3.0) - 2026-02-27
+
+### Other
+
+- Fix try_acquire_returns_connection test timing issue in postgres
+- Update documentation and add tests for pool lifecycle tracing
+- Add tracing spans for pool lifecycle and transaction operations
+- Add documentation and tests for Pool::inner() and AsRef
+- Expose underlying sqlx::Pool via inner() and AsRef
+- Implement security and performance audit recommendations
+- Fix security and performance issues found during audit
+- Revert workflow branch names back to main
+- Fix CI workflows to use master branch instead of main
+- Address review: savepoint docs and SQLite pool isolation
+- Add documentation and tests for Transaction::commit and Transaction::rollback
+- add `Transaction::commit` + `Transaction::rollback`
+
 ### Added
 
 - expose underlying `sqlx::Pool` via `Pool::inner()` method and `AsRef<sqlx::Pool<DB>>` impl
