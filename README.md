@@ -5,11 +5,12 @@
 ## Features
 
 - **Automatic Tracing**: All SQLx queries executed through the provided pool are traced using [tracing](https://docs.rs/tracing) spans.
+- **Lifecycle Tracing**: Pool operations (`acquire`, `close`) and transaction lifecycle (`begin`, `commit`, `rollback`) are instrumented with dedicated spans.
 - **OpenTelemetry Integration**: Traces are compatible with OpenTelemetry, making it easy to export to collectors and observability platforms.
 - **Error Recording**: Errors are automatically annotated with kind, message, and stacktrace in the tracing span.
 - **Returned Rows**: The number of rows returned by queries is recorded for observability.
+- **Pool Metrics**: Pool health methods (`size`, `num_idle`, `is_closed`) are exposed for monitoring.
 - **Database Agnostic**: Supports both PostgreSQL and SQLite via feature flags.
-- **Macros**: Includes a macro for consistent span creation around queries.
 
 ## Usage
 
@@ -50,7 +51,7 @@ let result: Option<i32> = sqlx::query_scalar("select 1")
     .await?;
 ```
 
-This works also with pool connections
+This works also with pool connections:
 
 ```rust,ignore
 let mut conn = traced_pool.acquire().await?;
@@ -59,31 +60,62 @@ let result: Option<i32> = sqlx::query_scalar("select 1")
     .await?;
 ```
 
-### Bypassing Tracing
+### Pool Management
 
-If you need to use SQLx features not yet supported by this crate (e.g. `COPY`,
-`LISTEN/NOTIFY`, or other database-specific operations), you can access the
-underlying `sqlx::Pool` directly:
+Check pool health and statistics:
 
 ```rust,ignore
-// Via the inner() method
-let raw_pool: &sqlx::PgPool = traced_pool.inner();
-let mut conn = raw_pool.acquire().await?;
-
-// Or via AsRef
-let raw_pool: &sqlx::PgPool = traced_pool.as_ref();
+let active = traced_pool.size();       // total connections (active + idle)
+let idle = traced_pool.num_idle();     // idle connections
+let closed = traced_pool.is_closed();  // whether close() has been called
 ```
 
-Queries executed through the inner pool will not be traced.
+Non-blocking connection acquisition:
+
+```rust,ignore
+if let Some(conn) = traced_pool.try_acquire() {
+    // Use connection immediately
+} else {
+    // Pool is saturated, all connections in use
+}
+```
+
+Graceful shutdown:
+
+```rust,ignore
+// Prevents new connections and waits for all active connections to return
+traced_pool.close().await;
+```
+
+### Connection Health Checks
+
+Ping a connection to verify it is still valid:
+
+```rust,ignore
+let mut conn = traced_pool.acquire().await?;
+conn.ping().await?;
+```
 
 ### Transactions
 
-And transactions
+Begin a transaction from the pool:
 
 ```rust,ignore
 let mut tx = traced_pool.begin().await?;
 let result: Option<i32> = sqlx::query_scalar("select 1")
     .fetch_optional(&mut tx.executor())
+    .await?;
+tx.commit().await?;
+```
+
+Or from an existing connection:
+
+```rust,ignore
+let mut conn = traced_pool.acquire().await?;
+let mut tx = conn.begin().await?;
+sqlx::query("INSERT INTO users (name) VALUES ($1)")
+    .bind("Alice")
+    .execute(&mut tx.executor())
     .await?;
 tx.commit().await?;
 ```
@@ -102,6 +134,26 @@ tx.rollback().await?;
 
 If a transaction is dropped without calling `commit` or `rollback`, it is
 automatically rolled back.
+
+All lifecycle operations (`acquire`, `begin`, `commit`, `rollback`, `close`,
+`ping`) emit dedicated tracing spans with OpenTelemetry-compatible attributes.
+
+### Bypassing Tracing
+
+If you need to use SQLx features not yet supported by this crate (e.g. `COPY`,
+`LISTEN/NOTIFY`, or other database-specific operations), you can access the
+underlying `sqlx::Pool` directly:
+
+```rust,ignore
+// Via the inner() method
+let raw_pool: &sqlx::PgPool = traced_pool.inner();
+let mut conn = raw_pool.acquire().await?;
+
+// Or via AsRef
+let raw_pool: &sqlx::PgPool = traced_pool.as_ref();
+```
+
+Queries executed through the inner pool will not be traced.
 
 ## Security Considerations
 

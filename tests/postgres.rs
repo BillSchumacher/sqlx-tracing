@@ -181,6 +181,97 @@ async fn inner_and_traced_share_same_pool() {
 }
 
 #[tokio::test]
+async fn pool_stats() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    assert!(!pool.is_closed());
+
+    // Acquire a connection to ensure at least one active connection.
+    let conn = pool.acquire().await.unwrap();
+    assert!(pool.size() >= 1);
+
+    // After dropping, it should return to idle.
+    drop(conn);
+    assert!(pool.size() >= 1);
+}
+
+#[tokio::test]
+async fn try_acquire_returns_connection() {
+    let container = PostgresContainer::create().await;
+
+    // Create a pool with max 1 connection.
+    let port = container.container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres@localhost:{port}/postgres");
+    let pool = sqlx::pool::PoolOptions::<Postgres>::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .map(sqlx_tracing::Pool::from)
+        .unwrap();
+
+    // Force a connection to be created.
+    let _warmup: (i32,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
+
+    // try_acquire should succeed when a connection is idle.
+    let conn = pool.try_acquire();
+    assert!(conn.is_some());
+
+    // With the only connection checked out, try_acquire should return None.
+    let second = pool.try_acquire();
+    assert!(second.is_none());
+}
+
+#[tokio::test]
+async fn pool_close() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    assert!(!pool.is_closed());
+    pool.close().await;
+    assert!(pool.is_closed());
+}
+
+#[tokio::test]
+async fn connection_ping() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    let mut conn = pool.acquire().await.unwrap();
+    // Ping should succeed on a healthy connection.
+    conn.ping().await.unwrap();
+}
+
+#[tokio::test]
+async fn connection_begin_transaction() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Create a table.
+    sqlx::query("CREATE TABLE test_conn_begin (id SERIAL PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Begin a transaction from a connection (not from the pool).
+    let mut conn = pool.acquire().await.unwrap();
+    let mut tx = conn.begin().await.unwrap();
+    sqlx::query("INSERT INTO test_conn_begin (value) VALUES ('from_conn')")
+        .execute(&mut tx.executor())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    drop(conn);
+
+    // Verify the row was committed.
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM test_conn_begin")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 1);
+}
+
+#[tokio::test]
 async fn transaction_drop_rolls_back() {
     let container = PostgresContainer::create().await;
     let pool = container.client().await;
