@@ -134,6 +134,53 @@ async fn transaction_rollback() {
 }
 
 #[tokio::test]
+async fn inner_returns_underlying_pool() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Use inner() to bypass tracing and execute directly on the sqlx pool.
+    let inner: &sqlx::PgPool = pool.inner();
+    let result: (i32,) = sqlx::query_as("SELECT 1").fetch_one(inner).await.unwrap();
+    assert_eq!(result.0, 1);
+}
+
+#[tokio::test]
+async fn as_ref_returns_underlying_pool() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Use AsRef to bypass tracing and execute directly on the sqlx pool.
+    let inner: &sqlx::PgPool = pool.as_ref();
+    let result: (i32,) = sqlx::query_as("SELECT 1").fetch_one(inner).await.unwrap();
+    assert_eq!(result.0, 1);
+}
+
+#[tokio::test]
+async fn inner_and_traced_share_same_pool() {
+    let container = PostgresContainer::create().await;
+    let pool = container.client().await;
+
+    // Create a table via the inner (untraced) pool.
+    sqlx::query("CREATE TABLE test_inner (id SERIAL PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(pool.inner())
+        .await
+        .unwrap();
+
+    // Insert via the inner pool.
+    sqlx::query("INSERT INTO test_inner (value) VALUES ('from_inner')")
+        .execute(pool.inner())
+        .await
+        .unwrap();
+
+    // Read via the traced pool -- should see the row inserted through inner.
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM test_inner")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 1);
+}
+
+#[tokio::test]
 async fn transaction_drop_rolls_back() {
     let container = PostgresContainer::create().await;
     let pool = container.client().await;
