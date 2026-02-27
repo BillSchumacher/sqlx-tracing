@@ -34,10 +34,14 @@ async fn execute() {
 
 #[tokio::test]
 async fn transaction_commit() {
-    let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+    let pool = sqlx::pool::PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect(":memory:")
+        .await
+        .unwrap();
     let pool = sqlx_tracing::Pool::from(pool);
 
-    // Create a table using a connection so it persists in the pool.
+    // Create a table.
     sqlx::query("CREATE TABLE test_commit (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
         .execute(&pool)
         .await
@@ -61,7 +65,11 @@ async fn transaction_commit() {
 
 #[tokio::test]
 async fn transaction_rollback() {
-    let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+    let pool = sqlx::pool::PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect(":memory:")
+        .await
+        .unwrap();
     let pool = sqlx_tracing::Pool::from(pool);
 
     // Create a table.
@@ -88,7 +96,11 @@ async fn transaction_rollback() {
 
 #[tokio::test]
 async fn transaction_drop_rolls_back() {
-    let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+    let pool = sqlx::pool::PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect(":memory:")
+        .await
+        .unwrap();
     let pool = sqlx_tracing::Pool::from(pool);
 
     // Create a table.

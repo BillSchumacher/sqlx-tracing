@@ -20,7 +20,10 @@ where
     /// Commits this transaction or savepoint.
     ///
     /// This consumes the `Transaction`, sending a `COMMIT` statement to the
-    /// database and releasing the underlying connection back to the pool.
+    /// database. For a top-level transaction, this releases the underlying
+    /// connection back to the pool. For a nested transaction or savepoint,
+    /// this only commits the savepoint; the outer transaction (and its
+    /// connection) remain active.
     ///
     /// # Errors
     ///
@@ -44,8 +47,10 @@ where
     /// Aborts this transaction or savepoint.
     ///
     /// This consumes the `Transaction`, sending a `ROLLBACK` statement to the
-    /// database and discarding all changes made within the transaction. The
-    /// underlying connection is released back to the pool.
+    /// database and discarding all changes made within the transaction. For a
+    /// top-level transaction, the underlying connection is released back to
+    /// the pool. For a nested transaction or savepoint, only the savepoint is
+    /// rolled back; the outer transaction (and its connection) remain active.
     ///
     /// Note that dropping a `Transaction` without calling [`commit`](Transaction::commit)
     /// will also roll back automatically. Use this method when you want to
