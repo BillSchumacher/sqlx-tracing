@@ -200,18 +200,19 @@ async fn pool_stats() {
 async fn try_acquire_returns_connection() {
     let container = PostgresContainer::create().await;
 
-    // Create a pool with max 1 connection.
+    // Create a pool with max 1 connection and min 1 to pre-create it.
     let port = container.container.get_host_port_ipv4(5432).await.unwrap();
     let url = format!("postgres://postgres@localhost:{port}/postgres");
     let pool = sqlx::pool::PoolOptions::<Postgres>::new()
         .max_connections(1)
+        .min_connections(1)
         .connect(&url)
         .await
         .map(sqlx_tracing::Pool::from)
         .unwrap();
 
-    // Force a connection to be created.
-    let _warmup: (i32,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
+    // Give the pool a moment to establish its min_connections.
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // try_acquire should succeed when a connection is idle.
     let conn = pool.try_acquire();
