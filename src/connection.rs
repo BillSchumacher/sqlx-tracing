@@ -10,6 +10,54 @@ where
     }
 }
 
+impl<DB> crate::PoolConnection<DB>
+where
+    DB: crate::prelude::Database + sqlx::Database,
+    for<'a> &'a mut DB::Connection: sqlx::Executor<'a, Database = DB>,
+{
+    /// Pings the database to check if the connection is still valid.
+    ///
+    /// The ping operation is instrumented with a `sqlx.connection.ping` tracing span.
+    pub async fn ping(&mut self) -> Result<(), sqlx::Error> {
+        use sqlx::Connection;
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.connection.ping", attrs);
+        async {
+            self.inner
+                .as_mut()
+                .ping()
+                .await
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Begins a new transaction on this connection.
+    ///
+    /// The returned [`Transaction`](crate::Transaction) is instrumented for tracing.
+    pub async fn begin(&mut self) -> Result<crate::Transaction<'_, DB>, sqlx::Error> {
+        use sqlx::Connection;
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.transaction.begin", attrs);
+        async {
+            self.inner
+                .as_mut()
+                .begin()
+                .await
+                .map(|inner| crate::Transaction {
+                    inner,
+                    attributes: self.attributes.clone(),
+                })
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
+    }
+}
+
 impl<'c, DB> sqlx::Executor<'c> for &'c mut crate::PoolConnection<DB>
 where
     DB: crate::prelude::Database + sqlx::Database,

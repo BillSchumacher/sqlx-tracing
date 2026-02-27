@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use tracing::Instrument;
+
 mod connection;
 mod pool;
 pub mod prelude;
@@ -200,22 +202,89 @@ where
         &self.inner
     }
 
+    /// Returns the number of connections currently active (including idle).
+    pub fn size(&self) -> u32 {
+        self.inner.size()
+    }
+
+    /// Returns the number of idle connections (not currently in use).
+    pub fn num_idle(&self) -> usize {
+        self.inner.num_idle()
+    }
+
+    /// Returns `true` if [`Pool::close`] has been called on this pool.
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
+}
+
+impl<DB> Pool<DB>
+where
+    DB: sqlx::Database + crate::prelude::Database,
+{
     /// Retrieves a connection and immediately begins a new transaction.
     ///
     /// The returned [`Transaction`] is instrumented for tracing.
     pub async fn begin<'c>(&'c self) -> Result<Transaction<'c, DB>, sqlx::Error> {
-        self.inner.begin().await.map(|inner| Transaction {
-            inner,
-            attributes: self.attributes.clone(),
-        })
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.transaction.begin", attrs);
+        async {
+            self.inner
+                .begin()
+                .await
+                .map(|inner| Transaction {
+                    inner,
+                    attributes: self.attributes.clone(),
+                })
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
     }
 
     /// Acquires a pooled connection, instrumented for tracing.
     pub async fn acquire(&self) -> Result<PoolConnection<DB>, sqlx::Error> {
-        self.inner.acquire().await.map(|inner| PoolConnection {
+        let attrs = &self.attributes;
+        let record_details = attrs.record_error_details;
+        let span = crate::instrument_op!("sqlx.pool.acquire", attrs);
+        async {
+            self.inner
+                .acquire()
+                .await
+                .map(|inner| PoolConnection {
+                    attributes: self.attributes.clone(),
+                    inner,
+                })
+                .inspect_err(|e| crate::span::record_error(e, record_details))
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Attempts to acquire a connection from the pool without waiting.
+    ///
+    /// Returns `None` immediately if no idle connections are available
+    /// and the pool is at its connection limit.
+    pub fn try_acquire(&self) -> Option<PoolConnection<DB>> {
+        let attrs = &self.attributes;
+        let span = crate::instrument_op!("sqlx.pool.acquire", attrs);
+        let _enter = span.enter();
+        self.inner.try_acquire().map(|inner| PoolConnection {
             attributes: self.attributes.clone(),
             inner,
         })
+    }
+
+    /// Ends the use of a connection pool.
+    ///
+    /// Prevents any new connections and will close all active connections
+    /// when they are returned to the pool. Does not resolve until all
+    /// connections are closed.
+    pub async fn close(&self) {
+        let attrs = &self.attributes;
+        let span = crate::instrument_op!("sqlx.pool.close", attrs);
+        async { self.inner.close().await }.instrument(span).await
     }
 }
 
