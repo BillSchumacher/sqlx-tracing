@@ -5,6 +5,7 @@
 /// - `$attributes`: Connection or pool attributes for peer and db context.
 ///
 /// This macro is used internally by the crate to instrument all major SQLx operations.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! instrument {
     ($name:expr, $statement:expr, $attributes:expr) => {
@@ -66,7 +67,8 @@ pub fn record_error(err: &sqlx::Error) {
     let span = tracing::Span::current();
     // Mark the span as an error for OpenTelemetry
     span.record("otel.status_code", "error");
-    span.record("otel.status_description", err.to_string());
+    let msg = err.to_string();
+    span.record("otel.status_description", &msg);
     // Classify error type as client or server
     match err {
         sqlx::Error::ColumnIndexOutOfBounds { .. }
@@ -83,6 +85,6 @@ pub fn record_error(err: &sqlx::Error) {
         }
     }
     // Attach error message and stacktrace for debugging
-    span.record("error.message", err.to_string());
+    span.record("error.message", msg);
     span.record("error.stacktrace", format!("{err:?}"));
 }

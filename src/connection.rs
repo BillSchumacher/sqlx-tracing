@@ -143,7 +143,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_all", sql, attrs);
+        let span = crate::instrument!("sqlx.fetch_many", sql, attrs);
         let stream = self.inner.fetch_many(query);
         Box::pin(
             stream
@@ -375,7 +375,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_all", sql, attrs);
+        let span = crate::instrument!("sqlx.fetch_many", sql, attrs);
         let stream = self.inner.fetch_many(query);
         Box::pin(
             stream
