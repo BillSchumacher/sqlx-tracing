@@ -84,6 +84,50 @@ tx.rollback().await?;
 If a transaction is dropped without calling `commit` or `rollback`, it is
 automatically rolled back.
 
+## Security Considerations
+
+### Query Text in Traces
+
+By default, `sqlx-tracing` records the full SQL query text in the `db.query.text`
+span field for every database operation. This follows
+[OpenTelemetry Semantic Conventions for Database Spans](https://opentelemetry.io/docs/specs/semconv/database/database-spans/),
+but means that:
+
+- **SQL queries with inline values** (not parameterized) will have those values recorded in traces
+- **Query structure reveals schema** — table names, column names, and query patterns are exposed
+- **Connection topology is exposed** — database host, port, and name appear in every span
+
+To disable query text recording:
+
+```rust,ignore
+let pool = sqlx_tracing::PoolBuilder::from(sqlx_pool)
+    .with_query_text_recording(false)
+    .build();
+```
+
+### Error Details in Traces
+
+By default, error details including `Debug`-format stacktraces are recorded in
+span fields. The `Debug` format of `sqlx::Error` can include connection strings
+or internal database state. To disable detailed error recording:
+
+```rust,ignore
+let pool = sqlx_tracing::PoolBuilder::from(sqlx_pool)
+    .with_error_detail_recording(false)
+    .build();
+```
+
+When disabled, error spans will still record the error type (client/server) and
+status code, but will omit the error message and stacktrace.
+
+### Recommendations
+
+- Always use **parameterized queries** to avoid exposing sensitive data in traces
+- Ensure your **observability backend** has appropriate access controls
+- Consider using **span processors** to redact sensitive data before export
+- Disable query text and/or error detail recording if your traces flow to systems
+  with different access controls than your database
+
 ## OpenTelemetry Integration
 
 To export traces, set up an OpenTelemetry collector and configure the tracing subscriber with the appropriate layers. See the `tests/common.rs` for a full example using `opentelemetry`, `opentelemetry-otlp`, and `tracing-opentelemetry`.

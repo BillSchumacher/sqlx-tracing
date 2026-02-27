@@ -14,9 +14,7 @@ where
         sql: &'q str,
     ) -> futures::future::BoxFuture<'e, Result<sqlx::Describe<Self::Database>, sqlx::Error>> {
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.describe", sql, attrs);
-        let fut = self.inner.describe(sql);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!("sqlx.describe", sql, attrs, self.inner.describe(sql))
     }
 
     fn execute<'e, 'q: 'e, E>(
@@ -31,9 +29,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.execute", sql, attrs);
-        let fut = self.inner.execute(query);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!("sqlx.execute", sql, attrs, self.inner.execute(query))
     }
 
     fn execute_many<'e, 'q: 'e, E>(
@@ -48,15 +44,11 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.execute_many", sql, attrs);
-        let stream = self.inner.execute_many(query);
-        use futures::StreamExt;
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
+        crate::exec_stream!(
+            "sqlx.execute_many",
+            sql,
+            attrs,
+            self.inner.execute_many(query)
         )
     }
 
@@ -69,16 +61,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch", sql, attrs);
-        let stream = self.inner.fetch(query);
-        use futures::StreamExt;
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
-        )
+        crate::exec_stream!("sqlx.fetch", sql, attrs, self.inner.fetch(query))
     }
 
     fn fetch_all<'e, 'q: 'e, E>(
@@ -93,19 +76,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_all", sql, attrs);
-        let fut = self.inner.fetch_all(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(|res| {
-                        let span = tracing::Span::current();
-                        span.record("db.response.returned_rows", res.len());
-                    })
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_rows!(sql, attrs, self.inner.fetch_all(query))
     }
 
     fn fetch_many<'e, 'q: 'e, E>(
@@ -126,15 +97,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_many", sql, attrs);
-        let stream = self.inner.fetch_many(query);
-        Box::pin(
-            stream
-                .inspect(move |_| {
-                    let _enter = span.enter();
-                })
-                .inspect_err(crate::span::record_error),
-        )
+        crate::exec_stream!("sqlx.fetch_many", sql, attrs, self.inner.fetch_many(query))
     }
 
     fn fetch_one<'e, 'q: 'e, E>(
@@ -146,16 +109,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_one", sql, attrs);
-        let fut = self.inner.fetch_one(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(crate::span::record_one)
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_one!(sql, attrs, self.inner.fetch_one(query))
     }
 
     fn fetch_optional<'e, 'q: 'e, E>(
@@ -170,16 +124,7 @@ where
     {
         let sql = query.sql();
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.fetch_optional", sql, attrs);
-        let fut = self.inner.fetch_optional(query);
-        Box::pin(
-            async move {
-                fut.await
-                    .inspect(crate::span::record_optional)
-                    .inspect_err(crate::span::record_error)
-            }
-            .instrument(span),
-        )
+        crate::exec_fut_opt!(sql, attrs, self.inner.fetch_optional(query))
     }
 
     fn prepare<'e, 'q: 'e>(
@@ -190,9 +135,7 @@ where
         Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>,
     > {
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.prepare", query, attrs);
-        let fut = self.inner.prepare(query);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!("sqlx.prepare", query, attrs, self.inner.prepare(query))
     }
 
     fn prepare_with<'e, 'q: 'e>(
@@ -204,8 +147,11 @@ where
         Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>,
     > {
         let attrs = &self.attributes;
-        let span = crate::instrument!("sqlx.prepare_with", sql, attrs);
-        let fut = self.inner.prepare_with(sql, parameters);
-        Box::pin(async move { fut.await.inspect_err(crate::span::record_error) }.instrument(span))
+        crate::exec_fut!(
+            "sqlx.prepare_with",
+            sql,
+            attrs,
+            self.inner.prepare_with(sql, parameters)
+        )
     }
 }
