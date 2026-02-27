@@ -59,6 +59,25 @@ let result: Option<i32> = sqlx::query_scalar("select 1")
     .await?;
 ```
 
+### Bypassing Tracing
+
+If you need to use SQLx features not yet supported by this crate (e.g. `COPY`,
+`LISTEN/NOTIFY`, or other database-specific operations), you can access the
+underlying `sqlx::Pool` directly:
+
+```rust,ignore
+// Via the inner() method
+let raw_pool: &sqlx::PgPool = traced_pool.inner();
+let mut conn = raw_pool.acquire().await?;
+
+// Or via AsRef
+let raw_pool: &sqlx::PgPool = traced_pool.as_ref();
+```
+
+Queries executed through the inner pool will not be traced.
+
+### Transactions
+
 And transactions
 
 ```rust,ignore

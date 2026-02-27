@@ -169,10 +169,37 @@ where
     }
 }
 
+impl<DB> AsRef<sqlx::Pool<DB>> for Pool<DB>
+where
+    DB: sqlx::Database,
+{
+    fn as_ref(&self) -> &sqlx::Pool<DB> {
+        &self.inner
+    }
+}
+
 impl<DB> Pool<DB>
 where
     DB: sqlx::Database,
 {
+    /// Returns a reference to the underlying [`sqlx::Pool`].
+    ///
+    /// This allows bypassing the tracing instrumentation for operations
+    /// not yet supported by this crate (e.g. `COPY`, `LISTEN/NOTIFY`,
+    /// or other database-specific features).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let pool: sqlx_tracing::Pool<sqlx::Postgres> = /* ... */;
+    ///
+    /// // Use the raw sqlx pool directly for unsupported operations
+    /// let raw: &sqlx::PgPool = pool.inner();
+    /// ```
+    pub fn inner(&self) -> &sqlx::Pool<DB> {
+        &self.inner
+    }
+
     /// Retrieves a connection and immediately begins a new transaction.
     ///
     /// The returned [`Transaction`] is instrumented for tracing.
